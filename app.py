@@ -45,7 +45,11 @@ def style_chart(fig, x_title="", y_title=""):
         plot_bgcolor=SURFACE,
         paper_bgcolor=SURFACE,
         margin=dict(t=10, l=10, r=10, b=10),
+        font=dict(color="black"),
+        legend=dict(font=dict(color="black")),
     )
+    fig.update_xaxes(title_font=dict(color="black"), tickfont=dict(color="black"))
+    fig.update_yaxes(title_font=dict(color="black"), tickfont=dict(color="black"))
     return fig
 
 
