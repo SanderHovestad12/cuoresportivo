@@ -2,6 +2,7 @@
 
 BASE_URL = "https://www.gaspedaal.nl"
 SEARCH_PATH = "/alfa-romeo/stelvio"
+PAGE_QUERY_PARAM = "page"  # bevestigd via een echte zoekpagina: ?page=2, ?page=3, ...
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -16,11 +17,15 @@ MAX_DELAY_SECONDS = 5.0
 DB_PATH = "data/stelvio.db"
 DEBUG_DIR = "debug"
 
-MAX_PAGES_DEFAULT = 20
+# Veiligheidslimiet: het daadwerkelijke aantal pagina's wordt bepaald door
+# "numberOfPages" uit de data van gaspedaal.nl zelf, maar dit is een
+# bovengrens voor het geval dat veld ooit ontbreekt.
+MAX_PAGES_SAFETY_CAP = 30
 
-# Bekende Stelvio-uitvoeringen. Gebruikt als fallback om de trim uit de
-# advertentietitel te herkennen wanneer de detailpagina geen los
-# "Uitvoering"-veld heeft. Vul aan als je een uitvoering mist.
+# Bekende Stelvio-uitvoeringen. Het "uitvoering"-veld van gaspedaal.nl bevat
+# de vrije advertentietekst (bv. "2.0 T AWD 280PK|PANO|CAMERA|..."), dus we
+# zoeken hierin naar een van deze bekende namen. Vul aan als je een
+# uitvoering mist in de resultaten.
 KNOWN_TRIMS = [
     "Quadrifoglio",
     "Veloce",
@@ -37,23 +42,19 @@ KNOWN_TRIMS = [
     "Competizione",
 ]
 
-# Nederlandse veldlabels zoals ze doorgaans in de specificatietabel van een
-# advertentiepagina staan, gemapt naar onze interne kolomnamen. Voeg hier
-# labels aan toe of pas ze aan als gaspedaal.nl andere bewoordingen blijkt te
-# gebruiken (check met `python scraper.py --debug`, zie README.md).
-LABEL_MAP = {
-    "bouwjaar": "build_year",
-    "eerste registratie": "build_year",
-    "km stand": "mileage_km",
-    "kilometerstand": "mileage_km",
-    "brandstof": "fuel_type",
-    "kleur": "color",
-    "uitvoering": "trim",
-    "transmissie": "transmission",
-    "vermogen": "power_hp",
-    "carrosserie": "body_type",
-    "motorinhoud": "engine_capacity",
-    "aantal deuren": "doors",
-    "vraagprijs": "price",
-    "prijs": "price",
+# Vertaling van de ruwe (Engelse/technische) waarden uit de gaspedaal.nl-data
+# naar leesbare Nederlandse labels voor het dashboard.
+FUEL_MAP = {
+    "BENZINE": "Benzine",
+    "DIESEL": "Diesel",
+    "ELEKTRICITEIT": "Elektrisch",
+    "HYBRIDE": "Hybride",
+    "LPG": "LPG",
+    "AARDGAS": "Aardgas",
+    "WATERSTOF": "Waterstof",
+}
+
+TRANSMISSION_MAP = {
+    "AUTOMATISCH": "Automaat",
+    "HANDGESCHAKELD": "Handgeschakeld",
 }

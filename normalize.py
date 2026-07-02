@@ -53,20 +53,23 @@ def guess_fuel(text):
 
 
 def guess_trim(title):
+    """Zoekt een bekende uitvoeringsnaam in de titel, op woordgrenzen (dus
+    niet "Ti" laten matchen binnen "Edition"). Bij meerdere treffers wint de
+    langste/specifiekste naam."""
     if not title:
         return None
-    for trim in KNOWN_TRIMS:
-        if trim.lower() in title.lower():
-            return trim
-    return None
+    matches = [t for t in KNOWN_TRIMS if re.search(rf"\b{re.escape(t)}\b", title, re.IGNORECASE)]
+    return max(matches, key=len) if matches else None
 
 
 def guess_engine(title):
-    """Probeert een motoraanduiding zoals '2.0 Turbo' uit de titel te halen."""
+    """Haalt de motorinhoud (bv. '2.0L') uit de titel, in hetzelfde formaat als
+    de motorinhoud die rechtstreeks uit de structured data komt, zodat beide
+    bronnen in het dashboard in dezelfde categorie vallen."""
     if not title:
         return None
-    match = re.search(r"\d\.\d\s?\w*", title)
-    return match.group(0).strip() if match else None
+    match = re.search(r"\d\.\d", title)
+    return f"{match.group(0)}L" if match else None
 
 
 def clean(text):

@@ -14,13 +14,22 @@ Bestaat uit twee delen:
 
 ## Belangrijk om te weten
 
-- **Dit script is gebouwd zonder live toegang tot gaspedaal.nl.** De sandbox
-  waarin dit is ontwikkeld blokkeert uitgaand internetverkeer naar de site,
-  dus de scraper kon hier niet tegen de echte site getest worden. De
-  parsing-logica is bewust defensief opgezet (meerdere fallback-strategieën,
-  zie hieronder), maar het is goed mogelijk dat je bij het eerste gebruik
-  iets moet bijstellen als de site een andere structuur blijkt te hebben.
-  Zie **"Als de scraper niets vindt"** verderop.
+- **De parsing-logica is geverifieerd tegen een echte zoekpagina** van
+  gaspedaal.nl (aangeleverd door de gebruiker, aangezien de ontwikkelomgeving
+  zelf geen toegang tot de site had). Gaspedaal.nl is een Next.js-app die de
+  volledige advertentiedata (prijs, bouwjaar, km-stand, motor, kleur,
+  uitvoering, verkoper, ...) als gestructureerde JSON meestuurt in de HTML
+  (in `<script>self.__next_f.push(...)</script>`-tags). De scraper leest die
+  JSON rechtstreeks uit — dat is veel betrouwbaarder dan de zichtbare HTML
+  parsen, en betekent ook dat er **geen aparte detailpagina's per
+  advertentie** hoeven te worden opgehaald: alle velden staan al op de
+  zoekresultatenpagina. Mocht gaspedaal.nl deze opzet ooit wijzigen, dan valt
+  het script terug op het parsen van de zichtbare advertentiekaarten. Zie
+  **"Als de scraper niets vindt"** verderop.
+- Gaspedaal.nl is zelf een vergelijkingssite: er is geen eigen
+  gaspedaal-detailpagina per auto. De `url` van elke advertentie in de
+  database is daarom een redirect-link (`api.gaspedaal.nl/redirect/...`) naar
+  de daadwerkelijke bron (dealersite, AutoTrack, AutoScout24, ...).
 - **Gebruik dit alleen voor persoonlijk, niet-commercieel onderzoek** (bv. om
   zelf een auto te kopen), en met mate. Het script respecteert standaard een
   wachttijd van 2,5–5 seconden tussen requests om de site niet te belasten.
@@ -44,15 +53,17 @@ pip install -r requirements.txt
 ### 1. Data verzamelen
 
 ```bash
-python scraper.py --details
+python scraper.py
 ```
 
-- `--details` haalt per advertentie ook de detailpagina op voor motorisering,
-  kleur, uitvoering, transmissie, vermogen en km-stand. Dit is nodig voor
-  zinvolle analyse, maar duurt langer (2,5–5 sec per advertentie).
-- `--ids-only` verzamelt alleen welke advertenties er zijn, zonder
-  detailpagina's op te halen (snel, maar zonder motorisering/kleur/etc.).
-- `--max-pages N` beperkt het aantal zoekresultaatpagina's (standaard 20).
+Dit doorloopt alle zoekresultaatpagina's voor de Alfa Romeo Stelvio (het
+aantal pagina's wordt automatisch door gaspedaal.nl zelf meegegeven) en
+slaat elke advertentie direct met alle velden op — er worden geen losse
+detailpagina's opgehaald.
+
+- `--max-pages N` beperkt het aantal zoekresultaatpagina's als
+  veiligheidsmarge (standaard 30; gaspedaal.nl geeft zelf aan hoeveel
+  pagina's er daadwerkelijk zijn).
 - `--debug` slaat de ruwe HTML van elke opgehaalde pagina op in `debug/`, zodat
   je kunt controleren of de parsing nog klopt.
 
@@ -77,25 +88,27 @@ brandstof, motorisering, uitvoering en kleur, plus:
 
 ## Als de scraper niets vindt
 
-Omdat dit niet tegen de live site getest kon worden, kan het zijn dat de
-aannames over de paginastructuur niet (meer) kloppen. Ga dan zo te werk:
+Als gaspedaal.nl zijn pagina-opbouw wijzigt, kan het zijn dat de aannames in
+dit script niet meer kloppen. Ga dan zo te werk:
 
 1. Draai `python scraper.py --debug --max-pages 1`.
-2. Bekijk `debug/search_page_1.html` (en eventuele `debug/detail_*.html`) en
-   vergelijk met wat je in de browser ziet via "Element inspecteren" (F12).
-3. Pas zo nodig aan in:
-   - `scraper.py` → `find_listing_urls_fallback` / `urls_from_json`: hoe
-     advertentie-links op de zoekpagina herkend worden.
-   - `config.LABEL_MAP`: de Nederlandse veldlabels ("Kleur", "Uitvoering",
-     ...) zoals ze daadwerkelijk op de detailpagina staan.
-4. Tip: kijk in de browser-devtools onder het "Network"-tabblad of
-   gaspedaal.nl de resultaten via een los JSON/XHR-verzoek laadt — als dat zo
-   is, is dat vaak een veel stabielere databron dan de HTML zelf.
+2. Open `debug/search_page_1.html` en zoek naar `self.__next_f.push` — dat
+   is de plek waar de advertentiedata als JSON in de pagina staat
+   (`scraper.extract_listings_from_json`). Vergelijk de veldnamen
+   (`advertentieId`, `prijs`, `autogegevens.algemeen.kleur`, enz.) met wat je
+   in het bestand ziet.
+3. Vind je die JSON niet meer terug, zoek dan naar
+   `data-testid="occasion-item"` (de zichtbare advertentiekaarten) — dat is
+   waar de fallback `scraper.parse_occasion_cards` op leunt.
+4. Pas de betreffende functie in `scraper.py` aan op de nieuwe structuur.
+5. Tip: kijk ook in de browser-devtools onder "Network" of gaspedaal.nl de
+   resultaten inmiddels via een apart JSON/XHR-verzoek laadt — dat zou een
+   nog stabielere databron zijn dan beide huidige strategieën.
 
 ## Projectstructuur
 
 ```
-config.py      Instellingen: URL's, wachttijden, labelmapping, bekende trims
+config.py      Instellingen: URL's, wachttijden, veldmapping, bekende trims
 normalize.py   Parsing/normalisatie van ruwe tekst (prijs, jaar, km, merk-varianten)
 db.py          SQLite-schema en lees/schrijf-functies
 scraper.py     Ophalen en parsen van gaspedaal.nl

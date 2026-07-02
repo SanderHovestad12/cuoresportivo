@@ -57,7 +57,7 @@ def counts_bar(df, column, title):
         st.info("Geen data voor dit veld.")
         return
     fig = px.bar(counts, x=column, y="aantal", color_discrete_sequence=[CATEGORICAL[0]])
-    fig.update_layout(xaxis=dict(categoryorder="total descending"))
+    fig.update_layout(xaxis=dict(type="category", categoryorder="total descending"))
     st.plotly_chart(style_chart(fig, y_title="Aantal advertenties"), use_container_width=True)
 
 
@@ -154,7 +154,7 @@ def main():
                 .head(10).reset_index()
             )
             fig = px.bar(avg_price, x="engine", y="price", color_discrete_sequence=[CATEGORICAL[1]])
-            fig.update_layout(xaxis=dict(categoryorder="total descending"))
+            fig.update_layout(xaxis=dict(type="category", categoryorder="total descending"))
             st.plotly_chart(style_chart(fig, y_title="Gemiddelde vraagprijs (€)"), use_container_width=True)
 
     left3, right3 = st.columns(2)
