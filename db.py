@@ -41,6 +41,12 @@ CREATE TABLE IF NOT EXISTS scrape_runs (
     listings_found INTEGER,
     listings_new INTEGER
 );
+
+CREATE TABLE IF NOT EXISTS locations (
+    city TEXT PRIMARY KEY,
+    lat REAL,
+    lon REAL
+);
 """
 
 # Kolommen die bij een update overschreven mogen worden, maar alleen als de
@@ -147,3 +153,23 @@ def fetch_price_history_df():
 def fetch_scrape_runs_df():
     with connect() as conn:
         return pd.read_sql_query("SELECT * FROM scrape_runs ORDER BY run_at", conn)
+
+
+def get_location(conn, city):
+    """Geeft (lat, lon) terug als de plaats al in de cache staat (lat/lon
+    kunnen None zijn als een eerdere geocode-poging mislukte), of None als
+    de plaats nog nooit is opgezocht."""
+    row = conn.execute("SELECT lat, lon FROM locations WHERE city = ?", (city,)).fetchone()
+    return None if row is None else (row["lat"], row["lon"])
+
+
+def save_location(conn, city, lat, lon):
+    conn.execute(
+        "INSERT OR REPLACE INTO locations (city, lat, lon) VALUES (?, ?, ?)",
+        (city, lat, lon),
+    )
+
+
+def fetch_locations_df():
+    with connect() as conn:
+        return pd.read_sql_query("SELECT * FROM locations", conn)

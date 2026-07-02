@@ -36,6 +36,7 @@ from bs4 import BeautifulSoup
 
 import config
 import db
+import geocode
 import normalize as norm
 
 FUEL_WORDS = {"Benzine", "Diesel", "Hybride", "Elektrisch", "LPG", "Aardgas", "Waterstof"}
@@ -300,6 +301,9 @@ def run(max_pages, debug):
                 new_count += 1
         db.mark_inactive(conn, [listing["id"] for listing in listings], now)
         db.record_run(conn, now, len(listings), new_count)
+
+    cities = [geocode.extract_city(listing.get("location")) for listing in listings]
+    geocode.geocode_missing_cities(cities)
 
     print(f"[scraper] Klaar. {new_count} nieuwe advertenties, {len(listings)} totaal actief gezien.")
 

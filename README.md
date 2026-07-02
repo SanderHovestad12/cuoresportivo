@@ -2,8 +2,9 @@
 
 Een kleine webapp om advertenties van [gaspedaal.nl](https://www.gaspedaal.nl)
 voor de **Alfa Romeo Stelvio** te verzamelen en te analyseren: verdeling van
-motoriseringen, bouwjaren, kleuren en uitvoeringen, en inzicht in de
-aanschafwaarde (vraagprijs) per segment.
+motoriseringen, bouwjaren, kleuren, uitvoeringen en locaties, en inzicht in
+de aanschafwaarde (vraagprijs) en werkelijke afschrijving t.o.v. de
+oorspronkelijke nieuwprijs per segment.
 
 Bestaat uit twee delen:
 
@@ -70,6 +71,12 @@ detailpagina's opgehaald.
 Draai dit script periodiek (bv. 1x per dag, handmatig of via cron/Taakplanner)
 om de dataset actueel te houden en prijstrends over tijd op te bouwen.
 
+Na het scrapen worden nieuwe plaatsnamen automatisch eenmalig gegeocodeerd
+via de gratis Nominatim-API van OpenStreetMap (voor de locatiekaart in het
+dashboard), met een respectvolle wachttijd van >1 seconde per opzoeking.
+Resultaten worden gecachet in de database, dus dit gebeurt maar één keer per
+plaatsnaam.
+
 ### 2. Dashboard bekijken
 
 ```bash
@@ -81,16 +88,20 @@ brandstof, motorisering, uitvoering en kleur, plus:
 
 - KPI's: aantal advertenties, gemiddelde vraagprijs, mediaan bouwjaar, gemiddelde km-stand
 - Prijsverdeling en bouwjaar-vs-prijs (depreciatie)
-- **Waardebehoud & afschrijving**: gemiddelde prijs per bouwjaar en per
-  km-stand, restwaarde (%) per bouwjaar t.o.v. het nieuwste bouwjaar in de
-  selectie, gemiddelde waardedaling per jaar, en een prijsmatrix van
-  bouwjaar × km-stand. Dit is een marktindicatie op basis van huidige
-  vraagprijzen (er is geen nieuwprijs-data beschikbaar) — filter op één
-  motorisering voor een eerlijke vergelijking.
+- **Waardebehoud & afschrijving**: de werkelijke afschrijving t.o.v. de
+  oorspronkelijke nieuwprijs (bron: AutoWeek.nl Carbase, zie
+  `nieuwprijzen.py`) per bouwjaar en per km-stand, gemiddelde waardedaling
+  per jaar, en een matrix van bouwjaar × km-stand. De nieuwprijs wordt
+  bepaald op basis van bouwjaar, motorisering en uitvoering van elke
+  specifieke advertentie.
 - Aantal en gemiddelde prijs per motorisering
 - Verdeling van kleuren en uitvoeringen
+- **Locatiekaart**: waar de advertenties te koop staan, met bolgrootte voor
+  het aantal advertenties en kleur voor de gemiddelde vraagprijs per plaats
+  (geocoded via OpenStreetMap/Nominatim, zie `geocode.py`)
 - Prijstrend over tijd (op basis van meerdere scrape-runs)
-- Doorzoekbare tabel met links naar de originele advertenties
+- Doorzoekbare tabel met links naar de originele advertenties, inclusief
+  geschatte nieuwprijs en afschrijving per auto
 
 ## Als de scraper niets vindt
 
@@ -114,13 +125,15 @@ dit script niet meer kloppen. Ga dan zo te werk:
 ## Projectstructuur
 
 ```
-config.py      Instellingen: URL's, wachttijden, veldmapping, bekende trims
-normalize.py   Parsing/normalisatie van ruwe tekst (prijs, jaar, km, merk-varianten)
-db.py          SQLite-schema en lees/schrijf-functies
-scraper.py     Ophalen en parsen van gaspedaal.nl
-app.py         Streamlit-dashboard
-data/          SQLite-database (niet in git)
-debug/         Opgeslagen ruwe HTML bij --debug (niet in git)
+config.py       Instellingen: URL's, wachttijden, veldmapping, bekende trims
+normalize.py    Parsing/normalisatie van ruwe tekst (prijs, jaar, km, merk-varianten)
+nieuwprijzen.py Historische catalogusprijzen (AutoWeek Carbase) + matching-logica voor afschrijving
+geocode.py      Plaatsnaam -> coördinaten via OpenStreetMap/Nominatim, met cache
+db.py           SQLite-schema en lees/schrijf-functies
+scraper.py      Ophalen en parsen van gaspedaal.nl
+app.py          Streamlit-dashboard
+data/           SQLite-database (niet in git)
+debug/          Opgeslagen ruwe HTML bij --debug (niet in git)
 ```
 
 ## Database-schema
@@ -134,3 +147,7 @@ de prijs van een advertentie is vastgelegd (voor trendanalyse).
 
 **`scrape_runs`**: `run_at, listings_found, listings_new` — log van elke
 scraper-run.
+
+**`locations`**: `city, lat, lon` — cache van gegeocodeerde plaatsnamen voor
+de locatiekaart. Een rij met `lat`/`lon` op `NULL` betekent dat een eerdere
+geocode-poging voor die plaats niets opleverde (voorkomt herhaald opzoeken).

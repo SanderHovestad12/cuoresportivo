@@ -1,9 +1,15 @@
 """Streamlit-dashboard voor de Gaspedaal Stelvio Analyzer."""
+from datetime import date
+
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 
 import db
+import geocode
+import nieuwprijzen
+
+CURRENT_YEAR = date.today().year
 
 # Vaste categorische kleurenreeks (CVD-gevalideerd, zie dataviz-richtlijnen).
 CATEGORICAL = [
@@ -23,7 +29,12 @@ st.set_page_config(page_title="Alfa Romeo Stelvio Analyzer", page_icon="🚗", l
 
 @st.cache_data(ttl=300)
 def load_data():
-    return db.fetch_listings_df(), db.fetch_price_history_df(), db.fetch_scrape_runs_df()
+    return (
+        db.fetch_listings_df(),
+        db.fetch_price_history_df(),
+        db.fetch_scrape_runs_df(),
+        db.fetch_locations_df(),
+    )
 
 
 def format_euro(value):
@@ -68,7 +79,7 @@ def counts_bar(df, column, title):
 def main():
     st.title("🚗 Alfa Romeo Stelvio – marktanalyse (gaspedaal.nl)")
 
-    listings, history, runs = load_data()
+    listings, history, runs, locations = load_data()
 
     if listings.empty:
         st.warning(
@@ -106,6 +117,19 @@ def main():
         selected = st.sidebar.multiselect(label, options)
         if selected:
             df = df[df[column].isin(selected)]
+
+    if not df.empty:
+        matches = df.apply(
+            lambda r: nieuwprijzen.estimate_nieuwprijs(r["build_year"], r["fuel_type"], r["power_hp"], r["trim"]),
+            axis=1, result_type="expand",
+        )
+        df["nieuwprijs"] = matches[0]
+        df["nieuwprijs_referentie"] = matches[1]
+        df["afschrijving_pct"] = 100 - (df["price"] / df["nieuwprijs"] * 100)
+    else:
+        df["nieuwprijs"] = None
+        df["nieuwprijs_referentie"] = None
+        df["afschrijving_pct"] = None
 
     st.caption(f"{len(df)} advertenties op basis van de huidige filters (van {len(listings)} totaal in de database).")
 
@@ -147,38 +171,39 @@ def main():
     st.divider()
     st.subheader("Waardebehoud: bouwjaar, km-stand en afschrijving")
     st.caption(
-        "Gebaseerd op de huidige vraagprijzen van advertenties, niet op de "
-        "oorspronkelijke nieuwprijs — dit is een marktindicatie van "
-        "waardebehoud, geen exacte afschrijvingsberekening. Filter in de "
-        "zijbalk op één motorisering voor een eerlijkere vergelijking, "
-        "anders vertekent de mix van motoren per bouwjaar het beeld."
+        "Afschrijving = huidige vraagprijs t.o.v. de oorspronkelijke "
+        "nieuwprijs van die uitvoering/motorisering in het bouwjaar van de "
+        "auto (bron: AutoWeek.nl Carbase, zie `nieuwprijzen.py`). Bij een "
+        "onzekere uitvoering wordt de dichtstbijzijnde match op vermogen en "
+        "bouwjaar gebruikt — zie kolom 'nieuwprijs (bron)' in de "
+        "advertentietabel onderaan voor de gebruikte referentie."
     )
 
-    dep_df = df.dropna(subset=["build_year", "price"]).copy()
+    dep_df = df.dropna(subset=["build_year", "price", "afschrijving_pct"]).copy()
     if dep_df.empty:
         st.info("Onvoldoende data voor deze analyse.")
     else:
-        year_stats = (
-            dep_df.groupby("build_year")
-            .agg(gemiddelde_prijs=("price", "mean"), aantal=("price", "size"))
-            .reset_index()
-        )
-        newest_year = year_stats["build_year"].max()
-        oldest_year = year_stats["build_year"].min()
-        newest_price = year_stats.loc[year_stats["build_year"] == newest_year, "gemiddelde_prijs"].iloc[0]
-        year_stats["restwaarde_pct"] = year_stats["gemiddelde_prijs"] / newest_price * 100
-        oldest_restwaarde = year_stats.loc[year_stats["build_year"] == oldest_year, "restwaarde_pct"].iloc[0]
+        match_rate = len(dep_df) / len(df) * 100 if len(df) else 0
+        dep_df["leeftijd"] = CURRENT_YEAR - dep_df["build_year"]
+        gem_afschrijving = dep_df["afschrijving_pct"].mean()
+        gem_leeftijd = dep_df["leeftijd"].mean()
+        decline_per_year = gem_afschrijving / gem_leeftijd if gem_leeftijd > 0 else None
 
         kpi_a, kpi_b, kpi_c = st.columns(3)
-        kpi_a.metric(f"Restwaarde bouwjaar {int(oldest_year)}", f"{oldest_restwaarde:.0f}%",
-                     help=f"T.o.v. de gemiddelde vraagprijs van bouwjaar {int(newest_year)} (= 100%) in de huidige selectie.")
-        years_span = newest_year - oldest_year
-        if years_span > 0:
-            avg_decline = (100 - oldest_restwaarde) / years_span
-            kpi_b.metric("Gem. waardedaling per jaar", f"{avg_decline:.1f}%/jaar")
-        else:
-            kpi_b.metric("Gem. waardedaling per jaar", "–")
-        kpi_c.metric("Nieuwste bouwjaar in selectie", int(newest_year))
+        kpi_a.metric("Gem. afschrijving t.o.v. nieuwprijs", f"{gem_afschrijving:.0f}%")
+        kpi_b.metric("Gem. waardedaling per jaar", f"{decline_per_year:.1f}%/jaar" if decline_per_year else "–")
+        kpi_c.metric("Gem. leeftijd", f"{gem_leeftijd:.1f} jaar")
+        st.caption(f"Nieuwprijs kon voor {len(dep_df)} van de {len(df)} advertenties ({match_rate:.0f}%) worden bepaald.")
+
+        year_stats = (
+            dep_df.groupby("build_year")
+            .agg(
+                gemiddelde_prijs=("price", "mean"),
+                gem_afschrijving=("afschrijving_pct", "mean"),
+                aantal=("price", "size"),
+            )
+            .reset_index()
+        )
 
         col_a, col_b = st.columns(2)
         with col_a:
@@ -188,15 +213,15 @@ def main():
             st.plotly_chart(style_chart(fig, "Bouwjaar", "Gemiddelde vraagprijs (€)"), use_container_width=True)
 
         with col_b:
-            st.markdown(f"**Restwaarde t.o.v. bouwjaar {int(newest_year)} (%)**")
-            fig = px.bar(year_stats, x="build_year", y="restwaarde_pct", text="restwaarde_pct",
+            st.markdown("**Gemiddelde afschrijving t.o.v. nieuwprijs, per bouwjaar**")
+            fig = px.bar(year_stats, x="build_year", y="gem_afschrijving", text="gem_afschrijving",
                          color_discrete_sequence=[CATEGORICAL[5]])
             fig.update_traces(texttemplate="%{text:.0f}%", textposition="outside")
             fig.update_layout(
                 xaxis=dict(type="category"),
-                yaxis=dict(range=[0, max(110, year_stats["restwaarde_pct"].max() * 1.15)]),
+                yaxis=dict(range=[0, year_stats["gem_afschrijving"].max() * 1.2]),
             )
-            st.plotly_chart(style_chart(fig, "Bouwjaar", "Restwaarde (%)"), use_container_width=True)
+            st.plotly_chart(style_chart(fig, "Bouwjaar", "Afschrijving (%)"), use_container_width=True)
 
         mileage_df = dep_df.dropna(subset=["mileage_km"]).copy()
         if not mileage_df.empty:
@@ -206,16 +231,16 @@ def main():
 
             col_c, col_d = st.columns(2)
             with col_c:
-                st.markdown("**Gemiddelde vraagprijs per km-stand**")
-                km_stats = mileage_df.groupby("km_bucket", observed=True)["price"].mean().reset_index()
-                fig = px.bar(km_stats, x="km_bucket", y="price", color_discrete_sequence=[CATEGORICAL[0]])
+                st.markdown("**Gemiddelde afschrijving per km-stand**")
+                km_stats = mileage_df.groupby("km_bucket", observed=True)["afschrijving_pct"].mean().reset_index()
+                fig = px.bar(km_stats, x="km_bucket", y="afschrijving_pct", color_discrete_sequence=[CATEGORICAL[5]])
                 fig.update_layout(xaxis=dict(type="category"))
-                st.plotly_chart(style_chart(fig, "Km-stand", "Gemiddelde vraagprijs (€)"), use_container_width=True)
+                st.plotly_chart(style_chart(fig, "Km-stand", "Gemiddelde afschrijving (%)"), use_container_width=True)
 
             with col_d:
-                st.markdown("**Prijs naar bouwjaar × km-stand**")
+                st.markdown("**Afschrijving % naar bouwjaar × km-stand**")
                 pivot = mileage_df.pivot_table(
-                    index="build_year", columns="km_bucket", values="price", aggfunc="mean", observed=True,
+                    index="build_year", columns="km_bucket", values="afschrijving_pct", aggfunc="mean", observed=True,
                 )
                 if pivot.empty:
                     st.info("Onvoldoende data voor deze matrix.")
@@ -223,7 +248,7 @@ def main():
                     fig = px.imshow(
                         pivot, aspect="auto", origin="lower",
                         color_continuous_scale=["#cde2fb", "#6da7ec", "#2a78d6", "#184f95", "#0d366b"],
-                        labels=dict(x="Km-stand", y="Bouwjaar", color="Gem. prijs (€)"),
+                        labels=dict(x="Km-stand", y="Bouwjaar", color="Gem. afschrijving (%)"),
                     )
                     fig.update_layout(coloraxis_colorbar=dict(
                         tickfont=dict(color="black"), title_font=dict(color="black"),
@@ -253,6 +278,47 @@ def main():
     with right3:
         counts_bar(df, "trim", "Uitvoeringen")
 
+    st.divider()
+    st.subheader("Waar staan de advertenties te koop?")
+    map_df = df.dropna(subset=["location"]).copy()
+    map_df["city"] = map_df["location"].apply(geocode.extract_city)
+    map_df = map_df.merge(locations, on="city", how="left").dropna(subset=["lat", "lon"])
+
+    if map_df.empty:
+        st.info(
+            "Nog geen locaties op de kaart. Draai `python scraper.py` opnieuw "
+            "-- nieuwe plaatsen worden dan automatisch eenmalig gegeocodeerd "
+            "via OpenStreetMap/Nominatim en opgeslagen in de database."
+        )
+    else:
+        city_stats = (
+            map_df.groupby(["city", "lat", "lon"])
+            .agg(aantal=("price", "size"), gemiddelde_prijs=("price", "mean"))
+            .reset_index()
+        )
+        city_stats["gem_prijs_fmt"] = city_stats["gemiddelde_prijs"].apply(format_euro)
+        fig = px.scatter_map(
+            city_stats, lat="lat", lon="lon", size="aantal", color="gemiddelde_prijs",
+            hover_name="city",
+            hover_data={"aantal": True, "gem_prijs_fmt": True, "gemiddelde_prijs": False, "lat": False, "lon": False},
+            color_continuous_scale=["#cde2fb", "#6da7ec", "#2a78d6", "#184f95", "#0d366b"],
+            size_max=32, zoom=6, center={"lat": 52.2, "lon": 5.3}, map_style="open-street-map",
+        )
+        fig.update_layout(
+            margin=dict(t=0, l=0, r=0, b=0),
+            height=520,
+            coloraxis_colorbar=dict(
+                title="Gem. prijs (€)", tickfont=dict(color="black"), title_font=dict(color="black"),
+            ),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        matched_pct = len(map_df) / len(df) * 100 if len(df) else 0
+        st.caption(
+            f"{len(map_df)} van de {len(df)} advertenties ({matched_pct:.0f}%) konden op de "
+            "kaart geplaatst worden. Bolgrootte = aantal advertenties, kleur = gemiddelde "
+            "vraagprijs in die plaats."
+        )
+
     if not history.empty:
         st.divider()
         st.subheader("Prijstrend over tijd (gemiddelde per scrape-moment)")
@@ -265,13 +331,20 @@ def main():
     st.subheader("Advertenties")
     show_cols = [
         c for c in [
-            "title", "build_year", "price", "mileage_km", "fuel_type", "engine",
-            "power_hp", "transmission", "color", "trim", "location", "is_active", "url",
+            "title", "build_year", "price", "nieuwprijs", "afschrijving_pct", "mileage_km",
+            "fuel_type", "engine", "power_hp", "transmission", "color", "trim", "location",
+            "is_active", "nieuwprijs_referentie", "url",
         ] if c in df.columns
     ]
     st.dataframe(
         df[show_cols].sort_values("price", na_position="last"),
-        column_config={"url": st.column_config.LinkColumn("Advertentie")},
+        column_config={
+            "url": st.column_config.LinkColumn("Advertentie"),
+            "price": st.column_config.NumberColumn("Vraagprijs", format="€ %d"),
+            "nieuwprijs": st.column_config.NumberColumn("Nieuwprijs (schatting)", format="€ %d"),
+            "afschrijving_pct": st.column_config.NumberColumn("Afschrijving", format="%.0f%%"),
+            "nieuwprijs_referentie": st.column_config.TextColumn("Nieuwprijs (bron)"),
+        },
         use_container_width=True,
         hide_index=True,
     )
