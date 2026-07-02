@@ -144,6 +144,92 @@ def main():
             )
             st.plotly_chart(style_chart(fig, "Bouwjaar", "Vraagprijs (€)"), use_container_width=True)
 
+    st.divider()
+    st.subheader("Waardebehoud: bouwjaar, km-stand en afschrijving")
+    st.caption(
+        "Gebaseerd op de huidige vraagprijzen van advertenties, niet op de "
+        "oorspronkelijke nieuwprijs — dit is een marktindicatie van "
+        "waardebehoud, geen exacte afschrijvingsberekening. Filter in de "
+        "zijbalk op één motorisering voor een eerlijkere vergelijking, "
+        "anders vertekent de mix van motoren per bouwjaar het beeld."
+    )
+
+    dep_df = df.dropna(subset=["build_year", "price"]).copy()
+    if dep_df.empty:
+        st.info("Onvoldoende data voor deze analyse.")
+    else:
+        year_stats = (
+            dep_df.groupby("build_year")
+            .agg(gemiddelde_prijs=("price", "mean"), aantal=("price", "size"))
+            .reset_index()
+        )
+        newest_year = year_stats["build_year"].max()
+        oldest_year = year_stats["build_year"].min()
+        newest_price = year_stats.loc[year_stats["build_year"] == newest_year, "gemiddelde_prijs"].iloc[0]
+        year_stats["restwaarde_pct"] = year_stats["gemiddelde_prijs"] / newest_price * 100
+        oldest_restwaarde = year_stats.loc[year_stats["build_year"] == oldest_year, "restwaarde_pct"].iloc[0]
+
+        kpi_a, kpi_b, kpi_c = st.columns(3)
+        kpi_a.metric(f"Restwaarde bouwjaar {int(oldest_year)}", f"{oldest_restwaarde:.0f}%",
+                     help=f"T.o.v. de gemiddelde vraagprijs van bouwjaar {int(newest_year)} (= 100%) in de huidige selectie.")
+        years_span = newest_year - oldest_year
+        if years_span > 0:
+            avg_decline = (100 - oldest_restwaarde) / years_span
+            kpi_b.metric("Gem. waardedaling per jaar", f"{avg_decline:.1f}%/jaar")
+        else:
+            kpi_b.metric("Gem. waardedaling per jaar", "–")
+        kpi_c.metric("Nieuwste bouwjaar in selectie", int(newest_year))
+
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.markdown("**Gemiddelde vraagprijs per bouwjaar**")
+            fig = px.line(year_stats, x="build_year", y="gemiddelde_prijs", markers=True,
+                          color_discrete_sequence=[CATEGORICAL[0]], hover_data={"aantal": True})
+            st.plotly_chart(style_chart(fig, "Bouwjaar", "Gemiddelde vraagprijs (€)"), use_container_width=True)
+
+        with col_b:
+            st.markdown(f"**Restwaarde t.o.v. bouwjaar {int(newest_year)} (%)**")
+            fig = px.bar(year_stats, x="build_year", y="restwaarde_pct", text="restwaarde_pct",
+                         color_discrete_sequence=[CATEGORICAL[5]])
+            fig.update_traces(texttemplate="%{text:.0f}%", textposition="outside")
+            fig.update_layout(
+                xaxis=dict(type="category"),
+                yaxis=dict(range=[0, max(110, year_stats["restwaarde_pct"].max() * 1.15)]),
+            )
+            st.plotly_chart(style_chart(fig, "Bouwjaar", "Restwaarde (%)"), use_container_width=True)
+
+        mileage_df = dep_df.dropna(subset=["mileage_km"]).copy()
+        if not mileage_df.empty:
+            km_bins = [0, 25_000, 50_000, 75_000, 100_000, 125_000, 150_000, 200_000, float("inf")]
+            km_labels = ["0-25k", "25-50k", "50-75k", "75-100k", "100-125k", "125-150k", "150-200k", "200k+"]
+            mileage_df["km_bucket"] = pd.cut(mileage_df["mileage_km"], bins=km_bins, labels=km_labels, right=False)
+
+            col_c, col_d = st.columns(2)
+            with col_c:
+                st.markdown("**Gemiddelde vraagprijs per km-stand**")
+                km_stats = mileage_df.groupby("km_bucket", observed=True)["price"].mean().reset_index()
+                fig = px.bar(km_stats, x="km_bucket", y="price", color_discrete_sequence=[CATEGORICAL[0]])
+                fig.update_layout(xaxis=dict(type="category"))
+                st.plotly_chart(style_chart(fig, "Km-stand", "Gemiddelde vraagprijs (€)"), use_container_width=True)
+
+            with col_d:
+                st.markdown("**Prijs naar bouwjaar × km-stand**")
+                pivot = mileage_df.pivot_table(
+                    index="build_year", columns="km_bucket", values="price", aggfunc="mean", observed=True,
+                )
+                if pivot.empty:
+                    st.info("Onvoldoende data voor deze matrix.")
+                else:
+                    fig = px.imshow(
+                        pivot, aspect="auto", origin="lower",
+                        color_continuous_scale=["#cde2fb", "#6da7ec", "#2a78d6", "#184f95", "#0d366b"],
+                        labels=dict(x="Km-stand", y="Bouwjaar", color="Gem. prijs (€)"),
+                    )
+                    fig.update_layout(coloraxis_colorbar=dict(
+                        tickfont=dict(color="black"), title_font=dict(color="black"),
+                    ))
+                    st.plotly_chart(style_chart(fig), use_container_width=True)
+
     left2, right2 = st.columns(2)
     with left2:
         counts_bar(df, "engine", "Aantal per motorisering")

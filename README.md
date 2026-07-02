@@ -81,6 +81,12 @@ brandstof, motorisering, uitvoering en kleur, plus:
 
 - KPI's: aantal advertenties, gemiddelde vraagprijs, mediaan bouwjaar, gemiddelde km-stand
 - Prijsverdeling en bouwjaar-vs-prijs (depreciatie)
+- **Waardebehoud & afschrijving**: gemiddelde prijs per bouwjaar en per
+  km-stand, restwaarde (%) per bouwjaar t.o.v. het nieuwste bouwjaar in de
+  selectie, gemiddelde waardedaling per jaar, en een prijsmatrix van
+  bouwjaar × km-stand. Dit is een marktindicatie op basis van huidige
+  vraagprijzen (er is geen nieuwprijs-data beschikbaar) — filter op één
+  motorisering voor een eerlijke vergelijking.
 - Aantal en gemiddelde prijs per motorisering
 - Verdeling van kleuren en uitvoeringen
 - Prijstrend over tijd (op basis van meerdere scrape-runs)
