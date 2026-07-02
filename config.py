@@ -58,3 +58,17 @@ TRANSMISSION_MAP = {
     "AUTOMATISCH": "Automaat",
     "HANDGESCHAKELD": "Handgeschakeld",
 }
+
+# Motorinhoud in cc zoals gaspedaal.nl die aanlevert, gemapt naar het label
+# dat de fabrikant er zelf aan geeft. Nodig omdat wiskundig afronden van
+# cc/1000 niet altijd klopt: de "2.2 JTDm"-diesel is bijvoorbeeld feitelijk
+# 2143cc, wat naar 2.1 zou afronden. Vul aan als een motor verkeerd
+# gelabeld wordt (zie normalize.label_engine_cc).
+KNOWN_ENGINE_CC = {
+    1995: "2.0L",
+    2000: "2.0L",
+    2143: "2.2L",
+    2200: "2.2L",
+    2891: "2.9L",
+    2900: "2.9L",
+}

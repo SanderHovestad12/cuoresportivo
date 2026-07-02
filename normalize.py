@@ -1,7 +1,7 @@
 """Hulpfuncties om ruwe teksten van gaspedaal.nl om te zetten naar bruikbare types."""
 import re
 
-from config import KNOWN_TRIMS
+from config import KNOWN_ENGINE_CC, KNOWN_TRIMS
 
 _NUM_RE = re.compile(r"[\d.,]+")
 
@@ -70,6 +70,19 @@ def guess_engine(title):
         return None
     match = re.search(r"\d\.\d", title)
     return f"{match.group(0)}L" if match else None
+
+
+def label_engine_cc(cc):
+    """Zet een motorinhoud in cc om naar het label zoals de fabrikant het zelf
+    noemt (bv. '2.2L'). Sommige motoren wijken af van de wiskundig afgeronde
+    waarde -- de 2.2 JTDm-diesel is bijvoorbeeld feitelijk 2143cc, wat naar
+    2.1 zou afronden. Bekende motoren staan daarom in config.KNOWN_ENGINE_CC;
+    voor onbekende waarden vallen we terug op afronden op 0,1 liter."""
+    if not cc:
+        return None
+    if cc in KNOWN_ENGINE_CC:
+        return KNOWN_ENGINE_CC[cc]
+    return f"{cc / 1000:.1f}L"
 
 
 def clean(text):

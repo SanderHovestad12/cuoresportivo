@@ -156,7 +156,7 @@ def normalize_json_listing(raw):
         "build_year": geschiedenis.get("bouwjaar"),
         "mileage_km": geschiedenis.get("kilometerstand"),
         "fuel_type": config.FUEL_MAP.get(fuel_raw, fuel_raw.title() if fuel_raw else None),
-        "engine": f"{engine_cc / 1000:.1f}L" if engine_cc else norm.guess_engine(uitvoering),
+        "engine": norm.label_engine_cc(engine_cc) or norm.guess_engine(uitvoering),
         "power_hp": round(power_hp) if power_hp else None,
         "transmission": config.TRANSMISSION_MAP.get(transmission_raw, transmission_raw),
         "color": (algemeen.get("kleur") or "").title() or None,
