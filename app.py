@@ -81,20 +81,53 @@ def counts_bar(df, column, title):
     st.plotly_chart(style_chart(fig, y_title="Aantal advertenties"), use_container_width=True)
 
 
+@st.dialog("Data verversen", width="large")
+def refresh_data_dialog():
+    log_lines = []
+    log_box = st.empty()
+
+    def on_log(message):
+        log_lines.append(message)
+        log_box.code("\n".join(log_lines), language=None)
+
+    on_log("Bezig met scrapen van gaspedaal.nl...")
+    try:
+        result = scraper.run(max_pages=config.MAX_PAGES_SAFETY_CAP, debug=False, on_log=on_log)
+    except Exception as exc:  # toon de fout in de popup i.p.v. hem stil te laten mislukken
+        on_log(f"FOUT: {exc}")
+        st.error(f"Verversen mislukt: {exc}")
+        st.cache_data.clear()
+        if st.button("Sluiten"):
+            st.rerun()
+        return
+
+    st.cache_data.clear()
+    if not result or not result.get("found"):
+        st.warning(
+            "Er zijn geen advertenties gevonden. Mogelijk blokkeert "
+            "gaspedaal.nl dit verzoek (bv. omdat je vanaf een cloud-server "
+            "draait), of is de paginastructuur gewijzigd. Bekijk de log "
+            "hierboven voor details."
+        )
+    else:
+        st.success(f"{result['found']} advertenties gevonden, waarvan {result['new']} nieuw.")
+
+    if st.button("Sluiten en dashboard bijwerken"):
+        st.rerun()
+
+
 def main():
     st.title(f"🚗 {APP_TITLE}")
     st.caption("Marktanalyse op basis van advertenties van gaspedaal.nl")
 
     st.sidebar.header("Data")
     if st.sidebar.button("🔄 Data verversen"):
-        with st.spinner("Bezig met scrapen van gaspedaal.nl... dit duurt doorgaans 1-2 minuten."):
-            scraper.run(max_pages=config.MAX_PAGES_SAFETY_CAP, debug=False)
-        st.cache_data.clear()
-        st.rerun()
+        refresh_data_dialog()
     st.sidebar.caption(
-        "Haalt de actuele advertenties op van gaspedaal.nl. Zichtbaar voor "
-        "iedereen die deze app bezoekt — beperk de toegang via de "
-        "deel-instellingen van Streamlit als je dat niet wilt."
+        "Haalt de actuele advertenties op van gaspedaal.nl en toont de "
+        "voortgang in een popup. Zichtbaar voor iedereen die deze app "
+        "bezoekt — beperk de toegang via de deel-instellingen van Streamlit "
+        "als je dat niet wilt."
     )
 
     listings, history, runs, locations = load_data()

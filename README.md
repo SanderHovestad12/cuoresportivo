@@ -107,7 +107,10 @@ De zijbalk heeft ook een **"Data verversen"**-knop die de scraper direct
 vanuit de app draait. Dat is nodig omdat `data/stelvio.db` niet in git zit
 (zie hieronder) — handig voor lokaal gebruik, en noodzakelijk om de app op
 Streamlit Community Cloud te kunnen publiceren zonder eerst iets handmatig
-te hoeven doen.
+te hoeven doen. De knop opent een popup met live logging van de voortgang
+(welke pagina's worden opgehaald, hoeveel advertenties gevonden, eventuele
+fouten) — zo zie je direct wat er misgaat als het verversen een keer niet
+lukt (bv. omdat gaspedaal.nl het verzoek blokkeert).
 
 ## Publiceren op Streamlit Community Cloud
 

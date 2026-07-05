@@ -39,20 +39,22 @@ def _lookup(city):
     return float(results[0]["lat"]), float(results[0]["lon"])
 
 
-def geocode_missing_cities(cities):
-    """Geocodeert alle plaatsnamen uit `cities` die nog niet in de cache staan."""
+def geocode_missing_cities(cities, on_log=print):
+    """Geocodeert alle plaatsnamen uit `cities` die nog niet in de cache staan.
+    `on_log` ontvangt elke voortgangsregel (standaard print())."""
     unique_cities = sorted({c for c in cities if c})
     with db.connect() as conn:
         todo = [c for c in unique_cities if db.get_location(conn, c) is None]
         if not todo:
+            on_log("[geocode] Alle plaatsen al eerder gegeocodeerd, niets te doen.")
             return
-        print(f"[geocode] {len(todo)} nieuwe plaatsen te geocoderen...")
+        on_log(f"[geocode] {len(todo)} nieuwe plaatsen te geocoderen...")
         for i, city in enumerate(todo, 1):
-            print(f"[geocode] ({i}/{len(todo)}) {city}")
+            on_log(f"[geocode] ({i}/{len(todo)}) {city}")
             try:
                 lat, lon = _lookup(city)
             except requests.RequestException as exc:
-                print(f"[geocode]  fout bij '{city}': {exc}")
+                on_log(f"[geocode]  fout bij '{city}': {exc}")
                 lat, lon = None, None
             db.save_location(conn, city, lat, lon)
             if i < len(todo):
