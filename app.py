@@ -8,6 +8,7 @@ import streamlit as st
 import db
 import geocode
 import nieuwprijzen
+import price_comparison
 
 CURRENT_YEAR = date.today().year
 
@@ -38,6 +39,15 @@ def load_data():
         db.fetch_scrape_runs_df(),
         db.fetch_locations_df(),
     )
+
+
+@st.cache_data(ttl=300)
+def compute_price_indicators(df):
+    # Best gecached op de (vrijwel statische) actieve-advertentieset i.p.v.
+    # bij elke filterwijziging opnieuw: het vergelijken van ~200 advertenties
+    # kost ongeveer een seconde, en de vergelijkingsgroep moet sowieso
+    # onafhankelijk zijn van cosmetische filters zoals kleur.
+    return price_comparison.add_price_indicators(df)
 
 
 def format_euro(value):
@@ -140,6 +150,10 @@ def main():
 
     only_active = st.sidebar.checkbox("Alleen actieve advertenties", value=True, key=fkey("active_only"))
     df = listings[listings["is_active"] == 1].copy() if only_active else listings.copy()
+
+    # Vóór de overige filters, zodat de vergelijkingsgroep voor de
+    # prijsindicatie niet verandert als je bv. op kleur of bouwjaar filtert.
+    df = compute_price_indicators(df)
 
     if df["build_year"].notna().any():
         year_min, year_max = int(df["build_year"].min()), int(df["build_year"].max())
@@ -385,10 +399,17 @@ def main():
 
     st.divider()
     st.subheader("Advertenties")
+    st.caption(
+        "**Prijsindicatie** vergelijkt de vraagprijs met vergelijkbare "
+        "advertenties (zelfde brandstof en uitvoering, dichtbij in bouwjaar "
+        "en km-stand): 🟢 laag = meer dan 5% onder die verwachte prijs, "
+        "🔴 hoog = meer dan 5% erboven, ⚪ gemiddeld = daartussen."
+    )
     show_cols = [
         c for c in [
-            "title", "build_year", "price", "nieuwprijs", "afschrijving_pct", "mileage_km",
-            "fuel_type", "engine", "power_hp", "transmission", "color", "trim", "location",
+            "title", "build_year", "price", "price_indicator_label", "expected_price",
+            "price_diff_pct", "nieuwprijs", "afschrijving_pct", "mileage_km", "fuel_type",
+            "engine", "power_hp", "transmission", "color", "trim", "location",
             "is_active", "nieuwprijs_referentie", "url",
         ] if c in df.columns
     ]
@@ -397,6 +418,12 @@ def main():
         column_config={
             "url": st.column_config.LinkColumn("Advertentie"),
             "price": st.column_config.NumberColumn("Vraagprijs", format="€ %d"),
+            "price_indicator_label": st.column_config.TextColumn(
+                "Prijsindicatie",
+                help="T.o.v. vergelijkbare advertenties (brandstof, uitvoering, bouwjaar, km-stand).",
+            ),
+            "expected_price": st.column_config.NumberColumn("Verwachte prijs", format="€ %d"),
+            "price_diff_pct": st.column_config.NumberColumn("Verschil", format="%.0f%%"),
             "nieuwprijs": st.column_config.NumberColumn("Nieuwprijs (schatting)", format="€ %d"),
             "afschrijving_pct": st.column_config.NumberColumn("Afschrijving", format="%.0f%%"),
             "nieuwprijs_referentie": st.column_config.TextColumn("Nieuwprijs (bron)"),

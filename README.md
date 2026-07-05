@@ -101,7 +101,10 @@ brandstof, motorisering, uitvoering en kleur, plus:
   (geocoded via OpenStreetMap/Nominatim, zie `geocode.py`)
 - Prijstrend over tijd (op basis van meerdere scrape-runs)
 - Doorzoekbare tabel met links naar de originele advertenties, inclusief
-  geschatte nieuwprijs en afschrijving per auto
+  geschatte nieuwprijs, afschrijving en een **prijsindicatie** per auto:
+  🟢 laag / ⚪ gemiddeld / 🔴 hoog t.o.v. vergelijkbare advertenties (zelfde
+  brandstof en uitvoering, dichtbij in bouwjaar en km-stand), zie
+  `price_comparison.py`
 
 De zijbalk toont bovenaan wanneer de data voor het laatst is ververst, en
 heeft een **"Wis filters"**-knop om alle filters in één keer terug te zetten.
