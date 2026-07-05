@@ -5,9 +5,11 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+import config
 import db
 import geocode
 import nieuwprijzen
+import scraper
 
 CURRENT_YEAR = date.today().year
 
@@ -24,11 +26,14 @@ FUEL_COLOR_MAP = {
 }
 SURFACE = "#fcfcfb"
 
-st.set_page_config(page_title="Alfa Romeo Stelvio Analyzer", page_icon="🚗", layout="wide")
+APP_TITLE = "Alfa Romeo Stelvio Marktanalyse - by Sander"
+
+st.set_page_config(page_title=APP_TITLE, page_icon="🚗", layout="wide")
 
 
 @st.cache_data(ttl=300)
 def load_data():
+    db.init_db()  # zorgt dat de tabellen bestaan, ook bij een verse/lege database
     return (
         db.fetch_listings_df(),
         db.fetch_price_history_df(),
@@ -77,18 +82,33 @@ def counts_bar(df, column, title):
 
 
 def main():
-    st.title("🚗 Alfa Romeo Stelvio – marktanalyse (gaspedaal.nl)")
+    st.title(f"🚗 {APP_TITLE}")
+    st.caption("Marktanalyse op basis van advertenties van gaspedaal.nl")
+
+    st.sidebar.header("Data")
+    if st.sidebar.button("🔄 Data verversen"):
+        with st.spinner("Bezig met scrapen van gaspedaal.nl... dit duurt doorgaans 1-2 minuten."):
+            scraper.run(max_pages=config.MAX_PAGES_SAFETY_CAP, debug=False)
+        st.cache_data.clear()
+        st.rerun()
+    st.sidebar.caption(
+        "Haalt de actuele advertenties op van gaspedaal.nl. Zichtbaar voor "
+        "iedereen die deze app bezoekt — beperk de toegang via de "
+        "deel-instellingen van Streamlit als je dat niet wilt."
+    )
 
     listings, history, runs, locations = load_data()
 
     if listings.empty:
         st.warning(
-            "Nog geen data gevonden. Draai eerst in de terminal:\n\n"
-            "`python scraper.py --details`\n\n"
+            "Nog geen data gevonden. Klik in de zijbalk op **'Data "
+            "verversen'**, of draai lokaal in de terminal:\n\n"
+            "`python scraper.py`\n\n"
             "en herlaad daarna deze pagina."
         )
         st.stop()
 
+    st.sidebar.divider()
     st.sidebar.header("Filters")
     only_active = st.sidebar.checkbox("Alleen actieve advertenties", value=True)
     df = listings[listings["is_active"] == 1].copy() if only_active else listings.copy()
