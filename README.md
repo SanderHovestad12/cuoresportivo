@@ -103,32 +103,35 @@ brandstof, motorisering, uitvoering en kleur, plus:
 - Doorzoekbare tabel met links naar de originele advertenties, inclusief
   geschatte nieuwprijs en afschrijving per auto
 
-De zijbalk heeft ook een **"Data verversen"**-knop die de scraper direct
-vanuit de app draait, met een popup die de voortgang en eventuele fouten
-live toont. Dit werkt goed lokaal. Op Streamlit Community Cloud blokkeert
-gaspedaal.nl dit verzoek vrijwel altijd met een 403 — de meeste sites
-weren verkeer vanaf cloud-datacenter-IP's (AWS/GCP/Azure, en dus ook
-Streamlit Cloud) categorisch, ongeacht wat de scraper verstuurt. Daar is
-geen betrouwbare workaround voor zonder actief anti-bot-maatregelen te
-omzeilen (proxies, fingerprint-spoofing, ...), wat dit project bewust niet
-doet. Zie de volgende sectie voor de aanpak die wél werkt.
+De zijbalk toont bovenaan wanneer de data voor het laatst is ververst, en
+heeft een **"Wis filters"**-knop om alle filters in één keer terug te zetten.
+
+Er is bewust géén "ververs nu"-knop in de app: live scrapen vanaf een
+cloud-omgeving zoals Streamlit Community Cloud wordt door gaspedaal.nl
+vrijwel altijd met een 403 geblokkeerd — de meeste sites weren verkeer
+vanaf cloud-datacenter-IP's (AWS/GCP/Azure) categorisch, ongeacht wat er
+verstuurd wordt. Daar is geen betrouwbare workaround voor zonder actief
+anti-bot-maatregelen te omzeilen (proxies, fingerprint-spoofing, ...), wat
+dit project bewust niet doet. Zie de volgende sectie voor de aanpak die
+wél werkt.
 
 ## Data verversen voor de Cloud-versie
 
-Omdat live scrapen vanaf Streamlit Cloud geblokkeerd wordt, is de aanpak:
-**ververs lokaal, commit de database, push naar GitHub** — Streamlit Cloud
-herdeployt daarna automatisch met de nieuwe data. `data/stelvio.db` wordt
-daarom bewust wél in git bijgehouden (zie `.gitignore`).
+De aanpak: **ververs lokaal, commit de database, push naar GitHub** —
+Streamlit Cloud herdeployt daarna automatisch met de nieuwe data.
+`data/stelvio.db` wordt daarom bewust wél in git bijgehouden (zie
+`.gitignore`).
 
 ```bash
-python scraper.py                        # of: klik lokaal op "Data verversen"
+python scraper.py
 git add data/stelvio.db
 git commit -m "Data verversen: $(date +%F)"
 git push
 ```
 
 Herhaal dit zo vaak als je wilt (bv. wekelijks) om de gepubliceerde app
-actueel te houden.
+actueel te houden. Het tijdstip van de laatste scrape (uit `scrape_runs`)
+is daarna meteen zichtbaar in de zijbalk van de app.
 
 ## Publiceren op Streamlit Community Cloud
 
@@ -141,10 +144,9 @@ actueel te houden.
 
 Een paar dingen om rekening mee te houden:
 
-- **De app is standaard openbaar** voor iedereen met de link, inclusief de
-  "Data verversen"-knop (die op Cloud dus toch zal falen, zie boven). Wil je
-  dat beperken, gebruik dan de deel-instellingen van Streamlit Community
-  Cloud om de app alleen zichtbaar te maken voor specifieke e-mailadressen.
+- **De app is standaard openbaar** voor iedereen met de link. Wil je dat
+  beperken, gebruik dan de deel-instellingen van Streamlit Community Cloud
+  om de app alleen zichtbaar te maken voor specifieke e-mailadressen.
 - Elke `git push` met een bijgewerkte `data/stelvio.db` triggert automatisch
   een herdeploy van de Cloud-app met de nieuwe data.
 

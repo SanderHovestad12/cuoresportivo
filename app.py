@@ -5,11 +5,9 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-import config
 import db
 import geocode
 import nieuwprijzen
-import scraper
 
 CURRENT_YEAR = date.today().year
 
@@ -81,111 +79,98 @@ def counts_bar(df, column, title):
     st.plotly_chart(style_chart(fig, y_title="Aantal advertenties"), use_container_width=True)
 
 
-@st.dialog("Data verversen", width="large")
-def refresh_data_dialog():
-    log_lines = []
-    log_box = st.empty()
-
-    def on_log(message):
-        log_lines.append(message)
-        log_box.code("\n".join(log_lines), language=None)
-
-    on_log("Bezig met scrapen van gaspedaal.nl...")
-    try:
-        result = scraper.run(max_pages=config.MAX_PAGES_SAFETY_CAP, debug=False, on_log=on_log)
-    except Exception as exc:  # toon de fout in de popup i.p.v. hem stil te laten mislukken
-        on_log(f"FOUT: {exc}")
-        st.error(f"Verversen mislukt: {exc}")
-        _maybe_show_blocked_hint(str(exc))
-        st.cache_data.clear()
-        if st.button("Sluiten"):
-            st.rerun()
+def _clamp_range_key(key, lo, hi):
+    """Past een eerder gekozen (min, max)-slidervalue aan als de werkelijke
+    bandbreedte is gekrompen (bv. door een andere filter), zodat Streamlit
+    niet crasht op een opgeslagen waarde die buiten de nieuwe grenzen valt."""
+    if key not in st.session_state:
         return
-
-    st.cache_data.clear()
-    if not result or not result.get("found"):
-        st.warning(
-            "Er zijn geen advertenties gevonden. Bekijk de log hierboven "
-            "voor de exacte foutmelding."
-        )
-        _maybe_show_blocked_hint("\n".join(log_lines))
+    cur_lo, cur_hi = st.session_state[key]
+    clamped = (max(cur_lo, lo), min(cur_hi, hi))
+    if clamped[0] > clamped[1]:
+        del st.session_state[key]
     else:
-        st.success(f"{result['found']} advertenties gevonden, waarvan {result['new']} nieuw.")
-
-    if st.button("Sluiten en dashboard bijwerken"):
-        st.rerun()
+        st.session_state[key] = clamped
 
 
-def _maybe_show_blocked_hint(text):
-    """Herkent een typische blokkade (403/429) en wijst naar de aanbevolen
-    workaround, in plaats van dat de gebruiker zelf moet uitzoeken waarom
-    verversen op een cloud-omgeving vaak niet werkt."""
-    if any(code in text for code in ("403", "429", "Forbidden")):
-        st.info(
-            "Dit lijkt een blokkade door gaspedaal.nl te zijn (veel sites "
-            "weren verkeer vanaf cloud-datacenters zoals Streamlit Community "
-            "Cloud categorisch, ongeacht wat er verstuurd wordt). Draai in "
-            "dat geval de scraper lokaal op je eigen computer en push de "
-            "bijgewerkte `data/stelvio.db` naar GitHub — zie "
-            "'Data verversen voor de Cloud-versie' in de README."
-        )
+def _clamp_multiselect_key(key, options):
+    """Verwijdert eerder geselecteerde waarden die niet meer in de huidige
+    (door andere filters ingeperkte) opties zitten, om dezelfde reden."""
+    if key in st.session_state:
+        st.session_state[key] = [v for v in st.session_state[key] if v in options]
 
 
 def main():
     st.title(f"🚗 {APP_TITLE}")
     st.caption("Marktanalyse op basis van advertenties van gaspedaal.nl")
 
-    st.sidebar.header("Data")
-    if st.sidebar.button("🔄 Data verversen"):
-        refresh_data_dialog()
-    st.sidebar.caption(
-        "Haalt de actuele advertenties op van gaspedaal.nl en toont de "
-        "voortgang in een popup. Werkt goed lokaal; op Streamlit Community "
-        "Cloud blokkeert gaspedaal.nl dit doorgaans (403) omdat het vanaf "
-        "een cloud-server draait — ververs in dat geval lokaal en push "
-        "`data/stelvio.db` naar GitHub (zie README). Ook zichtbaar voor "
-        "iedereen die deze app bezoekt — beperk de toegang via de "
-        "deel-instellingen van Streamlit als je dat niet wilt."
-    )
-
     listings, history, runs, locations = load_data()
+
+    st.sidebar.header("Data")
+    if not runs.empty:
+        last_run_dt = pd.to_datetime(runs.iloc[-1]["run_at"])
+        st.sidebar.caption(f"📅 Laatst ververst: {last_run_dt.strftime('%d-%m-%Y %H:%M')} UTC")
+    else:
+        st.sidebar.caption("📅 Nog niet ververst.")
 
     if listings.empty:
         st.warning(
-            "Nog geen data gevonden. Klik in de zijbalk op **'Data "
-            "verversen'**, of draai lokaal in de terminal:\n\n"
+            "Nog geen data gevonden. Draai lokaal in de terminal:\n\n"
             "`python scraper.py`\n\n"
-            "en herlaad daarna deze pagina."
+            "en herlaad daarna deze pagina (of, voor de gepubliceerde versie: "
+            "commit `data/stelvio.db` en push naar GitHub)."
         )
         st.stop()
 
     st.sidebar.divider()
-    st.sidebar.header("Filters")
-    only_active = st.sidebar.checkbox("Alleen actieve advertenties", value=True)
+    filters_col, clear_col = st.sidebar.columns([3, 2])
+    filters_col.header("Filters")
+    # Filterwidgets krijgen een key met deze generatie erin. "Wis filters"
+    # verhoogt de generatie i.p.v. de oude keys te legen: zo krijgen
+    # multiselects een compleet vers widget-exemplaar, want anders blijft de
+    # zichtbare selectie in de UI soms achter terwijl de data al ongefilterd
+    # is (een bekende eigenaardigheid van Streamlit's multiselect-component).
+    gen = st.session_state.setdefault("filter_gen", 0)
+    if clear_col.button("🧹 Wis filters"):
+        st.session_state["filter_gen"] = gen + 1
+        st.rerun()
+
+    def fkey(name):
+        return f"flt_{name}_{gen}"
+
+    only_active = st.sidebar.checkbox("Alleen actieve advertenties", value=True, key=fkey("active_only"))
     df = listings[listings["is_active"] == 1].copy() if only_active else listings.copy()
 
     if df["build_year"].notna().any():
         year_min, year_max = int(df["build_year"].min()), int(df["build_year"].max())
         if year_min < year_max:
-            year_range = st.sidebar.slider("Bouwjaar", year_min, year_max, (year_min, year_max))
+            _clamp_range_key(fkey("bouwjaar"), year_min, year_max)
+            year_range = st.sidebar.slider(
+                "Bouwjaar", year_min, year_max, (year_min, year_max), key=fkey("bouwjaar"),
+            )
             df = df[df["build_year"].between(*year_range)]
 
     if df["price"].notna().any():
         price_min, price_max = int(df["price"].min()), int(df["price"].max())
         if price_min < price_max:
-            price_range = st.sidebar.slider("Prijs (€)", price_min, price_max, (price_min, price_max), step=500)
+            _clamp_range_key(fkey("prijs"), price_min, price_max)
+            price_range = st.sidebar.slider(
+                "Prijs (€)", price_min, price_max, (price_min, price_max), step=500, key=fkey("prijs"),
+            )
             df = df[df["price"].between(*price_range)]
 
-    for column, label in [
-        ("fuel_type", "Brandstof"),
-        ("engine", "Motorisering"),
-        ("trim", "Uitvoering"),
-        ("color", "Kleur"),
+    for column, label, name in [
+        ("fuel_type", "Brandstof", "fuel_type"),
+        ("engine", "Motorisering", "engine"),
+        ("trim", "Uitvoering", "trim"),
+        ("color", "Kleur", "color"),
     ]:
         options = sorted(df[column].dropna().unique().tolist())
         if not options:
             continue
-        selected = st.sidebar.multiselect(label, options)
+        key = fkey(name)
+        _clamp_multiselect_key(key, options)
+        selected = st.sidebar.multiselect(label, options, key=key)
         if selected:
             df = df[df[column].isin(selected)]
 
