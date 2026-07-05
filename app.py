@@ -96,6 +96,7 @@ def refresh_data_dialog():
     except Exception as exc:  # toon de fout in de popup i.p.v. hem stil te laten mislukken
         on_log(f"FOUT: {exc}")
         st.error(f"Verversen mislukt: {exc}")
+        _maybe_show_blocked_hint(str(exc))
         st.cache_data.clear()
         if st.button("Sluiten"):
             st.rerun()
@@ -104,16 +105,30 @@ def refresh_data_dialog():
     st.cache_data.clear()
     if not result or not result.get("found"):
         st.warning(
-            "Er zijn geen advertenties gevonden. Mogelijk blokkeert "
-            "gaspedaal.nl dit verzoek (bv. omdat je vanaf een cloud-server "
-            "draait), of is de paginastructuur gewijzigd. Bekijk de log "
-            "hierboven voor details."
+            "Er zijn geen advertenties gevonden. Bekijk de log hierboven "
+            "voor de exacte foutmelding."
         )
+        _maybe_show_blocked_hint("\n".join(log_lines))
     else:
         st.success(f"{result['found']} advertenties gevonden, waarvan {result['new']} nieuw.")
 
     if st.button("Sluiten en dashboard bijwerken"):
         st.rerun()
+
+
+def _maybe_show_blocked_hint(text):
+    """Herkent een typische blokkade (403/429) en wijst naar de aanbevolen
+    workaround, in plaats van dat de gebruiker zelf moet uitzoeken waarom
+    verversen op een cloud-omgeving vaak niet werkt."""
+    if any(code in text for code in ("403", "429", "Forbidden")):
+        st.info(
+            "Dit lijkt een blokkade door gaspedaal.nl te zijn (veel sites "
+            "weren verkeer vanaf cloud-datacenters zoals Streamlit Community "
+            "Cloud categorisch, ongeacht wat er verstuurd wordt). Draai in "
+            "dat geval de scraper lokaal op je eigen computer en push de "
+            "bijgewerkte `data/stelvio.db` naar GitHub — zie "
+            "'Data verversen voor de Cloud-versie' in de README."
+        )
 
 
 def main():
@@ -125,9 +140,12 @@ def main():
         refresh_data_dialog()
     st.sidebar.caption(
         "Haalt de actuele advertenties op van gaspedaal.nl en toont de "
-        "voortgang in een popup. Zichtbaar voor iedereen die deze app "
-        "bezoekt — beperk de toegang via de deel-instellingen van Streamlit "
-        "als je dat niet wilt."
+        "voortgang in een popup. Werkt goed lokaal; op Streamlit Community "
+        "Cloud blokkeert gaspedaal.nl dit doorgaans (403) omdat het vanaf "
+        "een cloud-server draait — ververs in dat geval lokaal en push "
+        "`data/stelvio.db` naar GitHub (zie README). Ook zichtbaar voor "
+        "iedereen die deze app bezoekt — beperk de toegang via de "
+        "deel-instellingen van Streamlit als je dat niet wilt."
     )
 
     listings, history, runs, locations = load_data()

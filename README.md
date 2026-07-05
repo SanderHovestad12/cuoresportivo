@@ -104,40 +104,49 @@ brandstof, motorisering, uitvoering en kleur, plus:
   geschatte nieuwprijs en afschrijving per auto
 
 De zijbalk heeft ook een **"Data verversen"**-knop die de scraper direct
-vanuit de app draait. Dat is nodig omdat `data/stelvio.db` niet in git zit
-(zie hieronder) — handig voor lokaal gebruik, en noodzakelijk om de app op
-Streamlit Community Cloud te kunnen publiceren zonder eerst iets handmatig
-te hoeven doen. De knop opent een popup met live logging van de voortgang
-(welke pagina's worden opgehaald, hoeveel advertenties gevonden, eventuele
-fouten) — zo zie je direct wat er misgaat als het verversen een keer niet
-lukt (bv. omdat gaspedaal.nl het verzoek blokkeert).
+vanuit de app draait, met een popup die de voortgang en eventuele fouten
+live toont. Dit werkt goed lokaal. Op Streamlit Community Cloud blokkeert
+gaspedaal.nl dit verzoek vrijwel altijd met een 403 — de meeste sites
+weren verkeer vanaf cloud-datacenter-IP's (AWS/GCP/Azure, en dus ook
+Streamlit Cloud) categorisch, ongeacht wat de scraper verstuurt. Daar is
+geen betrouwbare workaround voor zonder actief anti-bot-maatregelen te
+omzeilen (proxies, fingerprint-spoofing, ...), wat dit project bewust niet
+doet. Zie de volgende sectie voor de aanpak die wél werkt.
+
+## Data verversen voor de Cloud-versie
+
+Omdat live scrapen vanaf Streamlit Cloud geblokkeerd wordt, is de aanpak:
+**ververs lokaal, commit de database, push naar GitHub** — Streamlit Cloud
+herdeployt daarna automatisch met de nieuwe data. `data/stelvio.db` wordt
+daarom bewust wél in git bijgehouden (zie `.gitignore`).
+
+```bash
+python scraper.py                        # of: klik lokaal op "Data verversen"
+git add data/stelvio.db
+git commit -m "Data verversen: $(date +%F)"
+git push
+```
+
+Herhaal dit zo vaak als je wilt (bv. wekelijks) om de gepubliceerde app
+actueel te houden.
 
 ## Publiceren op Streamlit Community Cloud
 
-1. Zorg dat deze branch/repo op GitHub staat (dat is al zo).
+1. Draai lokaal `python scraper.py` en commit/push `data/stelvio.db` (zie
+   hierboven), zodat er data is om te tonen zodra de app live gaat.
 2. Ga naar [share.streamlit.io](https://share.streamlit.io), log in met je
    GitHub-account en klik op "New app".
 3. Kies deze repository en branch, en zet "Main file path" op `app.py`.
 4. Klik op "Deploy". Streamlit installeert automatisch `requirements.txt`.
-5. Open de gepubliceerde app en klik in de zijbalk op **"Data verversen"**
-   om de eerste advertenties op te halen (duurt doorgaans 1-2 minuten).
 
 Een paar dingen om rekening mee te houden:
 
-- **De opslag is niet blijvend.** Streamlit Community Cloud herstart de app
-  af en toe (bv. na inactiviteit of een herdeploy), waarna de database leeg
-  is en je opnieuw op "Data verversen" moet klikken. Voor een altijd-actuele
-  app kun je zelf een schema bedenken om dit te automatiseren (bv. een
-  aparte cron-job die de database bijwerkt en commit), maar voor persoonlijk
-  gebruik is handmatig verversen prima.
 - **De app is standaard openbaar** voor iedereen met de link, inclusief de
-  "Data verversen"-knop. Wil je dat beperken, gebruik dan de
-  deel-instellingen van Streamlit Community Cloud om de app alleen
-  zichtbaar te maken voor specifieke e-mailadressen.
-- Gaspedaal.nl kan verkeer vanaf gedeelde cloud-IP's eerder blokkeren dan
-  verkeer vanaf je eigen internetverbinding. Werkt "Data verversen" op
-  Streamlit Cloud niet, draai de scraper dan lokaal en overweeg de
-  `data/stelvio.db` (tijdelijk) mee te committen als alternatief.
+  "Data verversen"-knop (die op Cloud dus toch zal falen, zie boven). Wil je
+  dat beperken, gebruik dan de deel-instellingen van Streamlit Community
+  Cloud om de app alleen zichtbaar te maken voor specifieke e-mailadressen.
+- Elke `git push` met een bijgewerkte `data/stelvio.db` triggert automatisch
+  een herdeploy van de Cloud-app met de nieuwe data.
 
 ## Als de scraper niets vindt
 
@@ -168,7 +177,7 @@ geocode.py      Plaatsnaam -> coördinaten via OpenStreetMap/Nominatim, met cach
 db.py           SQLite-schema en lees/schrijf-functies
 scraper.py      Ophalen en parsen van gaspedaal.nl
 app.py          Streamlit-dashboard
-data/           SQLite-database (niet in git)
+data/           SQLite-database (data/stelvio.db zit WEL in git, zie "Data verversen voor de Cloud-versie")
 debug/          Opgeslagen ruwe HTML bij --debug (niet in git)
 ```
 
