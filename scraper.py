@@ -239,18 +239,18 @@ def build_search_url(page):
     return url if page == 1 else f"{url}?{config.PAGE_QUERY_PARAM}={page}"
 
 
-def collect_listings(session, max_pages, debug):
+def collect_listings(session, max_pages, debug, on_log=print):
     listings_by_id = {}
     total_pages = None
     page = 1
 
     while page <= max_pages and (total_pages is None or page <= total_pages):
         url = build_search_url(page)
-        print(f"[scraper] Ophalen zoekpagina {page}: {url}")
+        on_log(f"[scraper] Ophalen zoekpagina {page}: {url}")
         try:
             html = fetch(session, url)
         except requests.RequestException as exc:
-            print(f"[scraper] Fout bij ophalen {url}: {exc}")
+            on_log(f"[scraper] Fout bij ophalen {url}: {exc}")
             break
 
         if debug:
@@ -260,8 +260,8 @@ def collect_listings(session, max_pages, debug):
         if page_total_pages:
             total_pages = page_total_pages
 
-        print(f"[scraper]  -> {len(listings)} advertenties gevonden op pagina {page}"
-              + (f" (totaal {total_pages} pagina's)" if total_pages else ""))
+        on_log(f"[scraper]  -> {len(listings)} advertenties gevonden op pagina {page}"
+               + (f" (totaal {total_pages} pagina's)" if total_pages else ""))
 
         if not listings:
             break
@@ -276,21 +276,27 @@ def collect_listings(session, max_pages, debug):
     return list(listings_by_id.values())
 
 
-def run(max_pages, debug):
+def run(max_pages, debug, on_log=print):
+    """Voert een volledige scrape uit. `on_log` ontvangt elke voortgangsregel
+    (standaard print(), maar bv. de webapp geeft hier een eigen functie aan
+    door om de voortgang live in een popup te tonen). Geeft een dict terug
+    met {"found": ..., "new": ...} zodat de aanroeper het resultaat kan
+    beoordelen (bv. 0 advertenties = waarschijnlijk geblokkeerd of gewijzigde
+    site-structuur)."""
     db.init_db()
     session = make_session()
 
-    listings = collect_listings(session, max_pages, debug)
-    print(f"[scraper] Totaal {len(listings)} unieke advertenties gevonden.")
+    listings = collect_listings(session, max_pages, debug, on_log=on_log)
+    on_log(f"[scraper] Totaal {len(listings)} unieke advertenties gevonden.")
 
     if not listings:
-        print(
+        on_log(
             "[scraper] Geen advertenties gevonden. De site-structuur is "
-            "vermoedelijk gewijzigd t.o.v. de aannames in dit script -- "
-            "draai met --debug en vergelijk de opgeslagen HTML met de "
-            "live site. Zie README.md."
+            "vermoedelijk gewijzigd t.o.v. de aannames in dit script, of het "
+            "verzoek werd geblokkeerd -- draai met --debug en vergelijk de "
+            "opgeslagen HTML met de live site. Zie README.md."
         )
-        return
+        return {"found": 0, "new": 0}
 
     now = datetime.now(timezone.utc).isoformat()
     new_count = 0
@@ -302,10 +308,12 @@ def run(max_pages, debug):
         db.mark_inactive(conn, [listing["id"] for listing in listings], now)
         db.record_run(conn, now, len(listings), new_count)
 
+    on_log("[scraper] Plaatsnamen geocoderen voor de locatiekaart...")
     cities = [geocode.extract_city(listing.get("location")) for listing in listings]
-    geocode.geocode_missing_cities(cities)
+    geocode.geocode_missing_cities(cities, on_log=on_log)
 
-    print(f"[scraper] Klaar. {new_count} nieuwe advertenties, {len(listings)} totaal actief gezien.")
+    on_log(f"[scraper] Klaar. {new_count} nieuwe advertenties, {len(listings)} totaal actief gezien.")
+    return {"found": len(listings), "new": new_count}
 
 
 def main():
