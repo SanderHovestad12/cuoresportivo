@@ -62,6 +62,12 @@ def format_km(value):
     return f"{value:,.0f} km".replace(",", ".")
 
 
+def format_eur_per_km(value):
+    if value is None or pd.isna(value):
+        return "–"
+    return f"€ {value:.2f}/km".replace(".", ",")
+
+
 def style_chart(fig, x_title="", y_title=""):
     fig.update_layout(
         xaxis_title=x_title,
@@ -196,10 +202,15 @@ def main():
         df["nieuwprijs"] = matches[0]
         df["nieuwprijs_referentie"] = matches[1]
         df["afschrijving_pct"] = 100 - (df["price"] / df["nieuwprijs"] * 100)
+        df["afschrijving_euro"] = df["nieuwprijs"] - df["price"]
+        mileage_safe = df["mileage_km"].where(df["mileage_km"] > 0)
+        df["afschrijving_per_km"] = df["afschrijving_euro"] / mileage_safe
     else:
         df["nieuwprijs"] = None
         df["nieuwprijs_referentie"] = None
         df["afschrijving_pct"] = None
+        df["afschrijving_euro"] = None
+        df["afschrijving_per_km"] = None
 
     st.caption(f"{len(df)} advertenties op basis van de huidige filters (van {len(listings)} totaal in de database).")
 
@@ -246,7 +257,10 @@ def main():
         "auto (bron: AutoWeek.nl Carbase, zie `nieuwprijzen.py`). Bij een "
         "onzekere uitvoering wordt de dichtstbijzijnde match op vermogen en "
         "bouwjaar gebruikt — zie kolom 'nieuwprijs (bron)' in de "
-        "advertentietabel onderaan voor de gebruikte referentie."
+        "advertentietabel onderaan voor de gebruikte referentie. "
+        "**Afschrijving per km** (€/km) = totale afschrijving in euro's "
+        "gedeeld door de km-stand — een gevoel bij hoeveel waarde er "
+        "gemiddeld 'verreden' is, los van hoe oud de auto is."
     )
 
     dep_df = df.dropna(subset=["build_year", "price", "afschrijving_pct"]).copy()
@@ -258,11 +272,17 @@ def main():
         gem_afschrijving = dep_df["afschrijving_pct"].mean()
         gem_leeftijd = dep_df["leeftijd"].mean()
         decline_per_year = gem_afschrijving / gem_leeftijd if gem_leeftijd > 0 else None
+        # Mediaan i.p.v. gemiddelde voor €/km: deze ratio is erg gevoelig
+        # voor een enkele auto met weinig km (een kleine noemer maakt de
+        # uitkomst snel een uitschieter), zeker binnen een kleine
+        # bouwjaar-cohort. De mediaan is daar veel robuuster tegen.
+        mediaan_per_km = dep_df["afschrijving_per_km"].median()
 
-        kpi_a, kpi_b, kpi_c = st.columns(3)
+        kpi_a, kpi_b, kpi_c, kpi_d = st.columns(4)
         kpi_a.metric("Gem. afschrijving t.o.v. nieuwprijs", f"{gem_afschrijving:.0f}%")
         kpi_b.metric("Gem. waardedaling per jaar", f"{decline_per_year:.1f}%/jaar" if decline_per_year else "–")
         kpi_c.metric("Gem. leeftijd", f"{gem_leeftijd:.1f} jaar")
+        kpi_d.metric("Mediane afschrijving per km", format_eur_per_km(mediaan_per_km))
         st.caption(f"Nieuwprijs kon voor {len(dep_df)} van de {len(df)} advertenties ({match_rate:.0f}%) worden bepaald.")
 
         year_stats = (
@@ -270,6 +290,7 @@ def main():
             .agg(
                 gemiddelde_prijs=("price", "mean"),
                 gem_afschrijving=("afschrijving_pct", "mean"),
+                mediaan_per_km=("afschrijving_per_km", "median"),
                 aantal=("price", "size"),
             )
             .reset_index()
@@ -292,6 +313,32 @@ def main():
                 yaxis=dict(range=[0, year_stats["gem_afschrijving"].max() * 1.2]),
             )
             st.plotly_chart(style_chart(fig, "Bouwjaar", "Afschrijving (%)"), use_container_width=True)
+
+        col_e, col_f = st.columns(2)
+        with col_e:
+            st.markdown("**Mediane afschrijving per km (€/km), per bouwjaar**")
+            per_km_year_stats = year_stats.dropna(subset=["mediaan_per_km"])
+            if per_km_year_stats.empty:
+                st.info("Onvoldoende data voor deze grafiek.")
+            else:
+                fig = px.bar(per_km_year_stats, x="build_year", y="mediaan_per_km", text="mediaan_per_km",
+                             color_discrete_sequence=[CATEGORICAL[4]])
+                fig.update_traces(texttemplate="€ %{text:.2f}", textposition="outside")
+                fig.update_layout(xaxis=dict(type="category"))
+                st.plotly_chart(style_chart(fig, "Bouwjaar", "Afschrijving (€/km)"), use_container_width=True)
+
+        with col_f:
+            st.markdown("**Afschrijving per km vs. km-stand (per auto)**")
+            per_km_scatter = dep_df.dropna(subset=["mileage_km", "afschrijving_per_km"])
+            if per_km_scatter.empty:
+                st.info("Onvoldoende data voor deze grafiek.")
+            else:
+                fig = px.scatter(
+                    per_km_scatter, x="mileage_km", y="afschrijving_per_km", color="fuel_type",
+                    color_discrete_map=FUEL_COLOR_MAP, log_y=True,
+                    hover_data=["title", "build_year", "trim"],
+                )
+                st.plotly_chart(style_chart(fig, "Km-stand", "Afschrijving (€/km, logschaal)"), use_container_width=True)
 
         mileage_df = dep_df.dropna(subset=["mileage_km"]).copy()
         if not mileage_df.empty:
@@ -408,8 +455,8 @@ def main():
     show_cols = [
         c for c in [
             "title", "build_year", "price", "price_indicator_label", "expected_price",
-            "price_diff_pct", "nieuwprijs", "afschrijving_pct", "mileage_km", "fuel_type",
-            "engine", "power_hp", "transmission", "color", "trim", "location",
+            "price_diff_pct", "nieuwprijs", "afschrijving_pct", "afschrijving_per_km", "mileage_km",
+            "fuel_type", "engine", "power_hp", "transmission", "color", "trim", "location",
             "is_active", "nieuwprijs_referentie", "url",
         ] if c in df.columns
     ]
@@ -426,6 +473,7 @@ def main():
             "price_diff_pct": st.column_config.NumberColumn("Verschil", format="%.0f%%"),
             "nieuwprijs": st.column_config.NumberColumn("Nieuwprijs (schatting)", format="€ %d"),
             "afschrijving_pct": st.column_config.NumberColumn("Afschrijving", format="%.0f%%"),
+            "afschrijving_per_km": st.column_config.NumberColumn("Afschrijving/km", format="€ %.2f"),
             "nieuwprijs_referentie": st.column_config.TextColumn("Nieuwprijs (bron)"),
         },
         use_container_width=True,

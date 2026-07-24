@@ -94,6 +94,11 @@ brandstof, motorisering, uitvoering en kleur, plus:
   per jaar, en een matrix van bouwjaar × km-stand. De nieuwprijs wordt
   bepaald op basis van bouwjaar, motorisering en uitvoering van elke
   specifieke advertentie.
+- **Afschrijving per km (€/km)**: totale afschrijving gedeeld door de
+  km-stand, als indicatie van hoeveel waarde er per gereden kilometer is
+  "verbruikt" — per bouwjaar en per auto (t.o.v. km-stand). Gebruikt de
+  mediaan i.p.v. het gemiddelde, omdat een enkele auto met weinig km al snel
+  een uitschieter in deze ratio veroorzaakt.
 - Aantal en gemiddelde prijs per motorisering
 - Verdeling van kleuren en uitvoeringen
 - **Locatiekaart**: waar de advertenties te koop staan, met bolgrootte voor
